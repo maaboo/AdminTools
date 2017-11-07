@@ -6,7 +6,7 @@ REM
 REM		Usage: <this file name> <drive letter> <volume id> <job name> <action>
 REM		where action is prebackup or postbackup
 REM		For instance:
-REM		<this file name> r: cfe0c634-0000-0000-0000-100000000000 home prebackup
+REM		<this file name> r cfe0c634-0000-0000-0000-100000000000 home prebackup
 REM		
 REM		Mounts plugged HDD for backup and then unmounts it. Written for 
 REM		Acronis True Image. Supports multiple simultaneous backups.
