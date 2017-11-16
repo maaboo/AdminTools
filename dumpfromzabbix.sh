@@ -21,12 +21,26 @@ MYSQLHOST=localhost
 MYSQLDATABASE=zabbix
 INTERVAL=604800
 SAVEFILE=~/zabbix.slice.sql
+CLOCKEDTABLES="history history_text auditlog history_log alerts service_alarms acknowledges "
+CLOCKEDTABLES=$CLOCKEDTABLES"history_uint events problem proxy_dhistory proxy_autoreg_host "
+CLOCKEDTABLES=$CLOCKEDTABLES"history_str trends proxy_history trends_uint"
+CLOCKEDTABLESSQL=$(echo "$CLOCKEDTABLES" | sed -e 's/ /,/g')
+CLOCKEDTABLESSQL=$(echo "$CLOCKEDTABLES" | sed -r "s/[^,]+/'&'/g")
+
+SQL="SET group_concat_max_len = 10240;"
+SQL="${SQL} SELECT GROUP_CONCAT(table_name separator ' ')"
+SQL="${SQL} FROM information_schema.tables WHERE table_schema='${MYSQLDATABASE}'"
+SQL="${SQL} AND table_name NOT IN ($CLOCKEDTABLESSQL)"
+
+NONCLOCKEDTABLES=$(mysql -u$MYSQLLOGIN -p$MYSQLPASSWORD -h$MYSQLHOST $MYSQLDATABASE -AN -e"${SQL}")
 
 #Human readable time 	Seconds
 #1 hour					3600 seconds
 #1 day					86400 seconds
 #1 week					604800 seconds
 #1 month (30.44 days) 	2629743 seconds
+
+SCRIPTNAME=`basename "$0"`
 
 CURRDATE=`date +"%s"`
 let BACKDATE=$CURRDATE-$INTERVAL
@@ -42,10 +56,13 @@ printf "To:	$(date -d @$CURRDATE) \n"
 printf "################################################################\n"
 printf "\n"
 
-mysqldump -u$MYSQLLOGIN -p$MYSQLPASSWORD -h$MYSQLHOST $MYSQLDATABASE \
---where="clock BETWEEN $BACKDATE and $CURRDATE" --force 2> /dev/null > $SAVEFILE &
+mysqldump -u$MYSQLLOGIN -p$MYSQLPASSWORD -h$MYSQLHOST $MYSQLDATABASE $NONCLOCKEDTABLES \
+--force 2> "$PWD/$SCRIPTNAME_error.log" > $SAVEFILE &
 
-printf "WARNING: Errors are suppressed due to absense 'clock' column in some tables.\n"
+mysqldump -u$MYSQLLOGIN -p$MYSQLPASSWORD -h$MYSQLHOST $MYSQLDATABASE $CLOCKEDTABLES \
+--where="clock BETWEEN $BACKDATE and $CURRDATE" --force 2> "$PWD/$SCRIPTNAME_error.log" >> $SAVEFILE &
+
+printf "WARNING: Errors are suppressed. Check script's log for details.\n"
 printf "\n"
 printf "Working, please wait: \n"
 
