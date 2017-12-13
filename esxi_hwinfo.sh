@@ -60,22 +60,22 @@ prefix_indexes=("" "K" "M" "G" "T" "P" "E" "Z" "Y")
 stop_list=( "Asus 5900GSX" )
 
 function printPrefixed() { # Prints number with preserved prefix and precision
-  precision="${2:-0}"
+  local precision="${2:-0}" ; local prefix="" ; local number=0
   IFS=' ' read -r -a array <<< "$1"
   if [[ "${#array[@]}" -ge 2 ]];
   then number="${array[0]}" ; prefix="${array[1]}"
   else number="${array[0]}" ; prefix=""
   fi
-  format="%."$precision"f" ; number=$(printf "$format" "$number")
+  local format="%."$precision"f" ; number=$(printf "$format" "$number")
   printf "%s" "$number $prefix"
 }
 
 function extractPart {
-  digit_part=$(echo $1 | sed -e 's/'"$re_digit_s"'//g')
-  letter_part=$(printf '%s' ${1//$digit_part/})
+  local digit_part=$(echo $1 | sed -e 's/'"$re_digit_s"'//g')
+  local letter_part=$(printf '%s' ${1//$digit_part/})
   case "$2" in
-  number) printf "%s" "$digit_part" ;;
-  suffix) printf "%s" "$letter_part" ;;
+    number) printf "%s" "$digit_part" ;;
+    suffix) printf "%s" "$letter_part" ;;
   esac
 }
 
@@ -95,11 +95,11 @@ function reduceString() {
 # reduceString "$number" "" btc
 # reduces given number by the base of 1000 (default), where number means btc
   
-  whole="${1:-0}" ; base="${2:-1000}" ; units="${3:-""}" ;
-  starting_prefix="${4:-""}" ; fraction=0 ; prefix_index=0
+  local whole="${1:-0}" ; local base="${2:-1000}" ; local units="${3:-""}" ;
+  local starting_prefix="${4:-""}" ; local fraction=0 ; local prefix_index=0 ;
   for index in "${!prefix_indexes[@]}"; do
     if [[ "$starting_prefix" == "${prefix_indexes[index]}" ]];
-    then prefix_index=$i; break; else prefix_index="1"
+    then prefix_index=$index; break; else prefix_index="0"
     fi
   done
   case "$base" in
@@ -125,32 +125,42 @@ function reduceString() {
 function compactNumber {
 # Converts something like "1234567.890" to "1.2 G"
 # (depends on precision which is the second optional argument)
-  precision="$2"; base="$3"
-  if [[ $1 =~ $re_point ]]; then number=$(roundUp "$1"); else number="$1" ; fi
-  out=$(reduceString "$number" "$base" "$units" "$prefix")
+  local number="$1"
+  local precision="${2:-0}"; local base="${3:-1000}"; local prefix="${4:-""}"
+  if [[ $1 =~ $re_point ]]; then number=$(roundUp "$1"); fi
+  out=$(reduceString "$number" "$base" "" "$prefix")
   out=$(printPrefixed "$out" "$precision")
   printf "%s" "$out"
+}
+
+function returnPrefix {
+  local prefix=""
+  for i in ${!prefix_indexes[@]}; do
+    if [[ $1 == ${prefix_indexes[$i]} ]]; then prefix="$1" ; break ; 
+	else prefix=""
+    fi
+  done
+  printf "%s" "$prefix"
 }
 
 function compactMixed { 
 # Converts something like "Step: 1234567.890 MBps" to "Step: 1.23 TBps" 
 # (depends on precision which is the second optional argument)
-  input="$1" ; precision="$2" ; base="$3" ; field="" ; value=""; delimiter=":"
+  local input="$1" ; local precision="$2" ; local base="$3" ; local field=""
+  local value=""; local delimiter=":" ; local units="" ; local prefix=""
   if ! [[ $input =~ $re_startwithnumber ]]; then # Looks like: "Speed: 1 MBps"
     field=$(printf "%s" "$input" | cut -d "$delimiter" -f 1)"$delimiter"
     value=$(printf "%s" "$input" | cut -d "$delimiter" -f 2)
   fi
-  suffix=$(extractPart "$value" suffix | sed 's/^ *//g')
-  prefix_check=${suffix:0:1}
-  for i in ${!prefix_indexes[@]}; do
-    if [[ $prefix_check == ${prefix_indexes[$i]} ]]; then 
-      units=$(printf "%s" "$suffix" | sed 's/^.//')
+  local suffix_check=$(extractPart "$value" suffix | sed 's/^ *//g')
+  local prefix_check=$(returnPrefix "${suffix_check:0:1}")
+  if [[ -z "$prefix_check" ]] ; then 
+    units="$suffix_check"; prefix=""
+  else
+      units=$(printf "%s" "$suffix_check" | sed 's/^.//')
       prefix="$prefix_check"
-      break
-    else units="$suffix"; prefix=""
-    fi
-  done
-  number=$(extractPart "$value" number); 
+  fi
+  local number=$(extractPart "$value" number) 
   if ! [[ $number =~ $re_startwithnumber ]]; then
     # It's not a number - print as is
     printf "%s" "$field$value"
@@ -160,9 +170,9 @@ function compactMixed {
       else number="$number"
       fi
     # Check for stop-list
-    for ITEM in "${stop_list[@]}"; do
-      if [[ $ITEM =~ $suffix ]]; then 
-        value="$suffix"
+    for item in "${stop_list[@]}"; do
+      if [[ $item =~ $suffix_check ]]; then 
+        value="$suffix_check"
       else
         value=$(reduceString "$number" "$base" "$units" "$prefix")
         value=$(printPrefixed "$value" "$precision")
@@ -173,11 +183,13 @@ function compactMixed {
 }
 
 function processStrings { 
-  source_string=$1; re_interlinedelimiter=$2 ; re_intralinedelimiter=$3
+# Bulk processing of mixed strings
+  local source_string=$1; local re_interlinedelimiter=$2 ; 
+  local re_intralinedelimiter=$3
   mapfile -t src_line_array <<<"$source_string"
-  format_array=(); strings_array=()
+  local format_array=(); local strings_array=()
   for line in "${src_line_array[@]}"; do
-    substr_array=()
+    local substr_array=()
     if [[ $line =~ $re_intralinedelimiter ]]; then
       IFS="$re_intralinedelimiter" read -ra substr_array <<<"$line"
       strings_array+=( "${substr_array[@]}" )
@@ -190,7 +202,7 @@ function processStrings {
   for i in "${!strings_array[@]}"; do
     strings_array[$i]=$(compactMixed "${strings_array[$i]}" 1)
   done
-  count=0; str=""
+  local count=0; local str=""
   for i in "${!src_line_array[@]}"; do
     for ((x=0; x<"${format_array[$i]}"; x++)); do
       if [[ $x -eq $((${format_array[$i]}-1)) ]]; then
@@ -214,12 +226,13 @@ function helpUsage {
 
 function cleanUp {
 # Removes quotes and unnecessary spaces from the given string
-  retval=$(echo "$1" | sed -e "s/\"//g;s/\'//g;s/^[ \t]*//;s/[ \t]*$//")
+  local retval=$(echo "$1" | sed -e "s/\"//g;s/\'//g;s/^[ \t]*//;s/[ \t]*$//")
   retval=$(echo "$retval" | awk '$1=$1')
   echo "$retval"
 }
 
 function getInfo {
+local cmd=""
 case "$1" in
   mb_vendor)
     cmd='smbiosDump | grep -A 11 "'"Board Info:"'" | grep Manufacturer'
@@ -325,7 +338,8 @@ case "$request" in
     out=$(printf "%s" "$out" | sed 's/@.*//g')
   ;;
   cpu_frequency)
-    out=$(compactNumber "$out" "1" "1000")
+    #out=$(printf "%s" "$out" | sed 's/$/ M/')
+    out=$(compactNumber "$out" "1" "1000" "M")
   ;;
   ram_slots_busy)
     # Amount of occupied slots (divide this by number of occupied CPU sockets):
@@ -333,7 +347,7 @@ case "$request" in
     out=$(( $out / $sockets ))
   ;;
   ram_total)
-    out=$(compactNumber "$out" "0" "1024")
+    out=$(compactNumber "$out" "0" "1024" "")
   ;;
   hdd)
   case "$hddoption" in
