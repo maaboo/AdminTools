@@ -112,7 +112,7 @@ function reduceString() {
   while (($whole >= $base)); do
     fraction="$(printf ".%01d" $(($whole % $base * 100 / $base)))"
     whole=$(($whole / $base))
-    if [ "$fraction" = ".0" ]; then fraction=0 ; fi
+    if [[ $fraction = ".0" ]]; then fraction=0 ; fi
     if [[ $prefix_index < 8 ]]; then let prefix_index++; else break; fi
   done
   if [[ -z $fraction ]]; then
@@ -235,12 +235,13 @@ function getInfo {
 local cmd=""
 case "$1" in
   mb_vendor)
-    cmd='smbiosDump | grep -A 11 "'"Board Info:"'" | grep Manufacturer'
+    cmd='smbiosDump | grep -A 11 -E "'"(Board|Chassis) Info:"'" '
+	cmd=$cmd'| grep Manufacturer'
     cmd=$cmd'| cut -d "'":"'" -f 2 | sed '"'s/\\\\\"//g'"' | head -n 1'
   ;;
   mb_model)
-    cmd='smbiosDump | grep -A 11 "'"Board Info:"'" | grep Product'
-    cmd=$cmd'| cut -d "'":"'" -f 2 | sed '"'s/\\\\\"//g'"''
+    cmd='smbiosDump | grep -A 11 "'"Info:"'" | grep Product'
+    cmd=$cmd'| cut -d "'":"'" -f 2 | sed '"'s/\\\\\"//g'"' | tail -n 1'
   ;;	
   cpu_model)
     cmd='vim-cmd hostsvc/hostsummary | grep cpuModel | cut -d '"'\"'"' -f2'
@@ -327,9 +328,13 @@ else
   printf "\nERR: Arguments mismatch.\n" ; displayUsage ; exit 1	
 fi
 out=$(getInfo "$request")
-if [ $? -ne 0 ]; then printf "$out" ; exit 1 ; fi
+if [[ $? -ne 0 ]]; then printf "$out" ; exit 1 ; fi
 # Output post processing
 case "$request" in
+  mb_vendor)
+    out=$(printf "%s" "$out" | sed 's/Technology//gI;s/Co.,//gI')
+	out=$(printf "%s" "$out" | sed 's/Ltd.//gI;s/Computer//gI;s/Inc.//gI')
+  ;;
   cpu_model)
     # Delete unnecessary trademarks, vendor names, words "CPU" and "processor"
     out=$(printf "%s" "$out" | sed 's/(R)//g;s/Intel//g;s/(tm)//g;s/AMD//g')
@@ -354,9 +359,17 @@ case "$request" in
     jbod)
       out=$(printf "%s" "$out" | awk 'ORS=NR%3?",":"\n"')
       out=$(printf "%s" "$out" | sed 's/Serial Attached SCSI/SAS/g')
+	  out=$(printf "%s" "$out" | sed 's/HP SAS Disk/HP SAS/g')
+	  out=$(printf "%s" "$out" | sed 's/HP Model/HP/g')
       out=$(printf "%s" "$out" | sed 's/LOGICAL VOLUME/Log. Vol./g')
       out=$(printf "%s" "$out" | sed 's/Display Name/Name/g')
       out=$(printf "%s" "$out" | sed -e 's/(naa.\{34\}//g')
+	  out=$(printf "%s" "$out" | sed -e 's/[()]//g')
+	  out=$(printf "%s" "$out" | sed -r 's/_{2,}/_/g')
+	  out=$(printf "%s" "$out" | sed -r 's/t10.ATA_//g')
+	  out=$(printf "%s" "$out" | sed -r 's/Local ATA Disk //g')
+	  # Remove wierd output like Name: WDC_WD2001FFSX2D68JNUN0_WD2DWMC5C0D1J58J
+	  out=$(printf "%s" "$out" | sed -e 's/[A-Z0-9]*_[A-Z0-9]*_[A-Z0-9]*/-/g')
 	  out=$(processStrings "$out" "\n" ",")
       dontclean=0
     ;;
@@ -364,13 +377,13 @@ case "$request" in
       out=$(printf "%s" "$out" | awk 'ORS=NR%2?",":"\n"')
       lines=$(printf "%s" "$out" | wc -l)
       # Max lines in HDD. When exceeded - make one line of every 2
-      if [ $lines -ge 6 ]; then
+      if [[ $lines -ge 5 ]]; then
         out=$(printf "%s" "$out" | awk 'ORS=NR%2?"; ":"\n"')
       fi
-      dontclean=1
+      dontclean=0
     ;;
   esac
   ;;
 esac
-if [ $dontclean -eq 0 ]; then out=$(cleanUp "$out"); fi
+if [[ $dontclean -eq 0 ]]; then out=$(cleanUp "$out"); fi
 printf "%s\n" "$out"
